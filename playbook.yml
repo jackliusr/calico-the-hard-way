@@ -1,0 +1,97 @@
+---
+- name: setup calico the hard way nodes
+  become: true
+  hosts: all
+  
+  tasks:
+  
+    - name: disable swappiness
+      sysctl:
+        name: vm.swappiness
+        value: '0'
+        state: present
+
+    - name: install packages 
+      package:
+        name:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - git
+        - vim
+        - gnupg2
+        - software-properties-common
+        - tmux
+        state: latest
+
+    - name: Add Docker GPG apt Key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present        
+        
+    - name: add docker repository to apt
+      apt_repository:
+         repo: deb https://download.docker.com/linux/ubuntu bionic stable
+         state: present
+     
+      
+    - name: install docker
+      package:
+        name: "{{item}}"
+        state: latest
+        update_cache: yes
+      loop:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+
+    - name: enable net.bridge.bridge-nf-call-iptables
+      sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: '1'
+        state: present
+
+    - name: Copy file with owner and permission, using symbolic representation
+      ansible.builtin.copy:
+        src: /vagrant/daemon.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=r
+        
+    - name: start docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add Google official GPG key
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Add Kubernetes Repository
+      apt_repository:
+        repo: deb http://apt.kubernetes.io/ kubernetes-xenial main 
+        state: present
+        filename: kubernetes
+        mode: 0600
+
+    - name: Installing Kubernetes Cluster Packages.
+      apt: 
+        name:
+          - kubeadm
+          - kubectl
+          - kubelet
+        state: present
+    - name: Enable service kubelet, and enable persistently
+      service: 
+        name: kubelet
+        enabled: yes
+      
+  handlers:
+    - name: restart docker
+      service: 
+        name: docker 
+        state: restarted
+        

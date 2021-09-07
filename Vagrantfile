@@ -23,9 +23,10 @@ Vagrant.configure("2") do |config|
   # Every Vagrant development environment requires a box. You can search for
   # boxes at https://vagrantcloud.com/search.
   # config.vm.box = "base"
-  config.vm.box = "ubuntu/bionic64"
+  # focal64, 2020
+  config.vm.box = "ubuntu/focal64"
   
-  config.vbguest.auto_update = false
+  config.vbguest.auto_update = true
 
   # Disable automatic box update checking. If you disable this, then
   # boxes will only be checked for updates when the user runs
@@ -48,21 +49,12 @@ Vagrant.configure("2") do |config|
         node.vm.hostname = "master-#{i}"
         node.vm.network :private_network, ip: IP_NW + "#{MASTER_IP_START + i}", virtualbox__intnet: true
         node.vm.network "forwarded_port", guest: 22, host: "#{2710 + i}"
-		
-        node.vm.provision "setup-hosts", :type => "shell", :path => "ubuntu/vagrant/setup-hosts.sh" do |s|
-          s.args = ["enp0s8"]
-        end
-
-		node.vm.provision "setup-dns", type: "shell", :path => "ubuntu/update-dns.sh"
-		node.vm.provision "install-docker", type: "shell", :path => "ubuntu/install-docker-2.sh"
-		node.vm.provision "allow-bridge-nf-traffic", :type => "shell", :path => "ubuntu/allow-bridge-nf-traffic.sh"
-		node.vm.provision "file", source: "./ubuntu/cert_verify.sh", destination: "$HOME/"
-		node.vm.provision "install-k8s", type: "shell", :path => "ubuntu/install-k8s.sh"
-
-      end
+        node.vm.provision "ansible_local" do |ansible|
+          ansible.playbook = "playbook.yml"
+        end 
+	    end
   end
 
-  # Provision Worker Nodes
   (1..NUM_WORKER_NODE).each do |i|
     config.vm.define "worker-#{i}" do |node|
         node.vm.provider "virtualbox" do |vb|
@@ -75,18 +67,12 @@ Vagrant.configure("2") do |config|
         end
         node.vm.hostname = "worker-#{i}"
         node.vm.network :private_network, ip: IP_NW + "#{NODE_IP_START + i}", virtualbox__intnet: true
-		node.vm.network "forwarded_port", guest: 22, host: "#{2720 + i}"
-
-        node.vm.provision "setup-hosts", :type => "shell", :path => "ubuntu/vagrant/setup-hosts.sh" do |s|
-          s.args = ["enp0s8"]
-        end
-
-        node.vm.provision "setup-dns", type: "shell", :path => "ubuntu/update-dns.sh"
-        node.vm.provision "install-docker", type: "shell", :path => "ubuntu/install-docker-2.sh"
-        node.vm.provision "allow-bridge-nf-traffic", :type => "shell", :path => "ubuntu/allow-bridge-nf-traffic.sh"
-        node.vm.provision "file", source: "./ubuntu/cert_verify.sh", destination: "$HOME/"
-		node.vm.provision "install-k8s", type: "shell", :path => "ubuntu/install-k8s.sh"
-
+		    node.vm.network "forwarded_port", guest: 22, host: "#{2720 + i}"
+        
+        node.vm.provision "ansible_local" do |ansible|
+          ansible.playbook = "playbook.yml"
+        end 
     end
   end
+  
 end
