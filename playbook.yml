@@ -4,12 +4,34 @@
   hosts: all
   
   tasks:
-  
+    - name: print ansible version
+      debug:
+        msg: "Ansible version is  {{ ansible_version.full }}"
+
     - name: disable swappiness
       sysctl:
         name: vm.swappiness
         value: '0'
         state: present
+    
+    - name: hosts--master
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^172.16.5.11'
+        line: 172.16.5.11 master-1
+        state: present
+
+    - name: hosts--workers
+      lineinfile:
+        path: /etc/hosts
+        regexp: "{{ item.regexp }}" 
+        line: "{{ item.line }}" 
+        state: present
+      with_items:
+      - { regexp: '^172.16.5.21', line: '172.16.5.21 worker-1' }
+      - { regexp: '^172.16.5.22', line: '172.16.5.21 worker-2' }
+      - { regexp: '^172.16.5.23', line: '172.16.5.21 worker-3' }
+      - { regexp: '^172.16.5.24', line: '172.16.5.21 worker-4' }
 
     - name: install packages 
       package:
@@ -51,20 +73,39 @@
         value: '1'
         state: present
 
-    - name: Copy file with owner and permission, using symbolic representation
-      ansible.builtin.copy:
-        src: /vagrant/daemon.json
-        dest: /etc/docker/daemon.json
-        owner: root
-        group: root
-        mode: u=rw,g=r,o=r
-        
     - name: start docker service
       service:
         name: docker
         state: started
         enabled: yes
 
+    - name: Copy docker daemon.json file with owner and permission
+      copy:
+        src: /vagrant/daemon.json
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=r
+
+    - name: Create a directory if it does not exist
+      file:
+        path: /etc/cni/net.d
+        state: directory
+        mode: '0755' 
+
+    - name: Copy file 10-calico.conflist
+      copy:
+        src: /vagrant/10-calico.conflist
+        dest: /etc/cni/net.d/10-calico.conflist
+        owner: root
+        group: root
+        mode: u=rw,g=r,o=r        
+
+    - name: Restart service httpd, in all cases
+      service:
+        name: docker
+        state: restarted
+        
     - name: Add Google official GPG key
       apt_key:
         url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
@@ -88,7 +129,23 @@
       service: 
         name: kubelet
         enabled: yes
-      
+
+    - name: Download calico cni
+      get_url:
+        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.14.0/calico-amd64
+        dest: /opt/cni/bin/calico
+        mode: '755'
+
+    - name: Download calico ipam
+      get_url:
+        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.14.0/calico-ipam-amd64
+        dest: /opt/cni/bin/calico-ipam
+        mode: '755'        
+    - name: Download calicoctl 
+      get_url:
+        url: https://github.com/projectcalico/calicoctl/releases/download/v3.14.0/calicoctl
+        dest: /usr/local/bin/calicoctl
+        mode: '755'         
   handlers:
     - name: restart docker
       service: 

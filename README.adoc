@@ -1,0 +1,449 @@
+= Calico the hard way
+:toc:
+
+vagrant cluster to study (calico in the hard way)(https://docs.projectcalico.org/getting-started/kubernetes/hardway/).
+
+
+
+= Labs
+
+== Standing up Kubernetes
+
+== The Calico datastore
+
+=== Provision nodes
+
+```bash
+vagrant up #master-1, worker-[1-4]
+```
+
+=== Install Kubernetes
+1. kubeadm,kubelet and kubectl are installed in provision step
+1. install master
++
+[source,bash]
+----
+vagrant ssh master-1
+sudo kubeadm init --pod-network-cidr=192.168.0.0/16 --apiserver-advertise-address=172.16.5.11
+----
+
+1. join workers
++
+```bash
+vagrant ssh worker-[1-4]
+#your token and discovery-token-ca-cert-hash maybe different from mine
+sudo kubeadm join 172.16.5.11:6443 --token 6mjw5k.h654f6r9sc9r102j \
+        --discovery-token-ca-cert-hash sha256:7d2694944118bafb0d15df48b3387177b5a86abefb46be81f16319353e0e5fa4
+```
+1. Copy admin credentials, run on master-1
++
+```bash
+# run in master-1
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+1. Test Access
++
+```bash
+#at master-1
+$ kubectl get nodes
+NAME       STATUS     ROLES                  AGE     VERSION
+master-1   NotReady   control-plane,master   9m37s   v1.22.1
+worker-1   NotReady   <none>                 17s     v1.22.1
+```
+== The Calico datastore
+
+=== Using Kubernetes as the datastore
+```bash
+kubectl apply -f https://docs.projectcalico.org/manifests/crds.yaml
+```
+=== calicoctl
+
+Install
+[source,bash]
+----
+wget https://github.com/projectcalico/calicoctl/releases/download/v3.14.0/calicoctl
+chmod +x calicoctl
+sudo mv calicoctl /usr/local/bin/
+----
+
+Configure calicoctl to access Kubernetes
+```bash
+echo "export KUBECONFIG=~/.kube/config" >> ~/.bashrc
+echo "DATASTORE_TYPE=kubernetes" >> ~/.bashrc
+```
+
+Test
+```shell
+$ calicoctl get nodes
+NAME
+master-1
+worker-1
+$ calicoctl get ippools
+NAME   CIDR   SELECTOR
+
+```
+
+== Configure IP pools
+
+```bash
+$ cat > pool1.yaml <<EOF
+apiVersion: projectcalico.org/v3
+kind: IPPool
+metadata:
+  name: pool1
+spec:
+  cidr: 192.168.0.0/18
+  ipipMode: Never
+  natOutgoing: true
+  disabled: false
+  nodeSelector: all()
+EOF
+
+$ cat > pool2.yaml <<EOF
+apiVersion: projectcalico.org/v3
+kind: IPPool
+metadata:
+  name: pool2
+spec:
+  cidr: 192.168.192.0/19
+  ipipMode: Never
+  natOutgoing: true
+  disabled: true
+  nodeSelector: all()
+EOF
+
+$ calicoctl create -f pool1.yaml
+$ calicoctl create -f pool2.yaml
+
+$ calicoctl get ippools
+NAME    CIDR               SELECTOR
+pool1   192.168.0.0/18     all()
+pool2   192.168.192.0/19   all()
+```
+
+== Install CNI plugin
+
+Provision Kubernetes user account for the plugin
+```bash
+openssl req -newkey rsa:4096 \
+           -keyout cni.key \
+           -nodes \
+           -out cni.csr \
+           -subj "/CN=calico-cni"
+sudo openssl x509 -req -in cni.csr \
+                  -CA /etc/kubernetes/pki/ca.crt \
+                  -CAkey /etc/kubernetes/pki/ca.key \
+                  -CAcreateserial \
+                  -out cni.crt \
+                  -days 365
+sudo chown ubuntu:ubuntu cni.crt
+
+APISERVER=$(kubectl config view -o jsonpath='{.clusters[0].cluster.server}')
+kubectl config set-cluster kubernetes \
+    --certificate-authority=/etc/kubernetes/pki/ca.crt \
+    --embed-certs=true \
+    --server=$APISERVER \
+    --kubeconfig=cni.kubeconfig
+
+kubectl config set-credentials calico-cni \
+    --client-certificate=cni.crt \
+    --client-key=cni.key \
+    --embed-certs=true \
+    --kubeconfig=cni.kubeconfig
+
+kubectl config set-context default \
+    --cluster=kubernetes \
+    --user=calico-cni \
+    --kubeconfig=cni.kubeconfig
+
+kubectl config use-context default --kubeconfig=cni.kubeconfig
+# Copy this cni.kubeconfig file to every node in the cluster. which folder?
+cp cni.kubeconfig /vagrant
+```
+
+Provision RBAC
+```bash
+kubectl apply -f - <<EOF
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: calico-cni
+rules:
+  # The CNI plugin needs to get pods, nodes, and namespaces.
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - namespaces
+    verbs:
+      - get
+  # The CNI plugin patches pods/status.
+  - apiGroups: [""]
+    resources:
+      - pods/status
+    verbs:
+      - patch
+ # These permissions are required for Calico CNI to perform IPAM allocations.
+  - apiGroups: ["crd.projectcalico.org"]
+    resources:
+      - blockaffinities
+      - ipamblocks
+      - ipamhandles
+    verbs:
+      - get
+      - list
+      - create
+      - update
+      - delete
+  - apiGroups: ["crd.projectcalico.org"]
+    resources:
+      - ipamconfigs
+      - clusterinformations
+      - ippools
+    verbs:
+      - get
+      - list
+EOF
+
+#Bind the cluster role to the calico-cni account.
+
+kubectl create clusterrolebinding calico-cni --clusterrole=calico-cni --user=calico-cni
+```
+
+Install the plugin
+
+Steps were done in provision
+
+. calico and calico-ipam are downloaded, 
+. folder /etc/cni/net.d/ is created
+. 10-calico.conflist is copied to /etc/cni/net.d/10-calico.conflist from /vagrant/10-calico.conflist
+
+```bash
+cp /vagrant/cni.kubeconfig /etc/cni/net.d/calico-kubeconfig
+chmod 600 /etc/cni/net.d/calico-kubeconfig
+```
+
+== Install Typha
+
+=== Provision Certificates
+```bash
+openssl req -x509 -newkey rsa:4096 \
+                  -keyout typhaca.key \
+                  -nodes \
+                  -out typhaca.crt \
+                  -subj "/CN=Calico Typha CA" \
+                  -days 365
+kubectl create configmap -n kube-system calico-typha-ca --from-file=typhaca.crt
+
+openssl req -newkey rsa:4096 \
+           -keyout typha.key \
+           -nodes \
+           -out typha.csr \
+           -subj "/CN=calico-typha"
+
+openssl x509 -req -in typha.csr \
+                  -CA typhaca.crt \
+                  -CAkey typhaca.key \
+                  -CAcreateserial \
+                  -out typha.crt \
+                  -days 365
+kubectl create secret generic -n kube-system calico-typha-certs --from-file=typha.key --from-file=typha.crt
+
+```
+=== Provision RBAC
+```bash
+kubectl create serviceaccount -n kube-system calico-typha
+
+# Define a cluster role for Typha with permission to watch Calico datastore objects.
+kubectl apply -f - <<EOF
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: calico-typha
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - namespaces
+      - serviceaccounts
+      - endpoints
+      - services
+      - nodes
+    verbs:
+      # Used to discover service IPs for advertisement.
+      - watch
+      - list
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs:
+      - watch
+      - list
+  - apiGroups: ["crd.projectcalico.org"]
+    resources:
+      - globalfelixconfigs
+      - felixconfigurations
+      - bgppeers
+      - globalbgpconfigs
+      - bgpconfigurations
+      - ippools
+      - ipamblocks
+      - globalnetworkpolicies
+      - globalnetworksets
+      - networkpolicies
+      - clusterinformations
+      - hostendpoints
+      - blockaffinities
+      - networksets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups: ["crd.projectcalico.org"]
+    resources:
+      #- ippools
+      #- felixconfigurations
+      - clusterinformations
+    verbs:
+      - get
+      - create
+      - update
+EOF
+
+# Bind the cluster role to the calico-typha ServiceAccount.
+kubectl create clusterrolebinding calico-typha --clusterrole=calico-typha \
+   --serviceaccount=kube-system:calico-typha
+```
+
+=== Install deployment
+
+[source,bash]
+----
+kubectl apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calico-typha
+  namespace: kube-system
+  labels:
+    k8s-app: calico-typha
+spec:
+  replicas: 3
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      k8s-app: calico-typha
+  template:
+    metadata:
+      labels:
+        k8s-app: calico-typha
+      annotations:
+        cluster-autoscaler.kubernetes.io/safe-to-evict: 'true'
+    spec:
+      hostNetwork: true
+      tolerations:
+        # Mark the pod as a critical add-on for rescheduling.
+        - key: CriticalAddonsOnly
+          operator: Exists
+      serviceAccountName: calico-typha
+      priorityClassName: system-cluster-critical
+      containers:
+      - image: calico/typha:v3.8.0
+        name: calico-typha
+        ports:
+        - containerPort: 5473
+          name: calico-typha
+          protocol: TCP
+        env:
+          # Disable logging to file and syslog since those don't make sense in Kubernetes.
+          - name: TYPHA_LOGFILEPATH
+            value: "none"
+          - name: TYPHA_LOGSEVERITYSYS
+            value: "none"
+          # Monitor the Kubernetes API to find the number of running instances and rebalance
+          # connections.
+          - name: TYPHA_CONNECTIONREBALANCINGMODE
+            value: "kubernetes"
+          - name: TYPHA_DATASTORETYPE
+            value: "kubernetes"
+          - name: TYPHA_HEALTHENABLED
+            value: "true"
+          # Location of the CA bundle Typha uses to authenticate calico/node; volume mount
+          - name: TYPHA_CAFILE
+            value: /calico-typha-ca/typhaca.crt
+          # Common name on the calico/node certificate
+          - name: TYPHA_CLIENTCN
+            value: calico-node
+          # Location of the server certificate for Typha; volume mount
+          - name: TYPHA_SERVERCERTFILE
+            value: /calico-typha-certs/typha.crt
+          # Location of the server certificate key for Typha; volume mount
+          - name: TYPHA_SERVERKEYFILE
+            value: /calico-typha-certs/typha.key
+        livenessProbe:
+          httpGet:
+            path: /liveness
+            port: 9098
+            host: localhost
+          periodSeconds: 30
+          initialDelaySeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /readiness
+            port: 9098
+            host: localhost
+          periodSeconds: 10
+        volumeMounts:
+        - name: calico-typha-ca
+          mountPath: "/calico-typha-ca"
+          readOnly: true
+        - name: calico-typha-certs
+          mountPath: "/calico-typha-certs"
+          readOnly: true
+      volumes:
+      - name: calico-typha-ca
+        configMap:
+          name: calico-typha-ca
+      - name: calico-typha-certs
+        secret:
+          secretName: calico-typha-certs
+EOF
+----
+
+=== Install Service
+```bash
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: calico-typha
+  namespace: kube-system
+  labels:
+    k8s-app: calico-typha
+spec:
+  ports:
+    - port: 5473
+      protocol: TCP
+      targetPort: calico-typha
+      name: calico-typha
+  selector:
+    k8s-app: calico-typha
+EOF
+```
+
+== Install calico/node
+=== Provision Certificates
+
+=== Provision RBAC
+=== Install daemon set
+== Configure BGP peering
+
+== Test networking
+
+== Test network policy
+
+== End user RBAC
+
+== Istio integration

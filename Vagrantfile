@@ -26,6 +26,7 @@ Vagrant.configure("2") do |config|
   # focal64, 2020
   config.vm.box = "ubuntu/focal64"
   
+  # need to make vboxsf work
   config.vbguest.auto_update = true
 
   # Disable automatic box update checking. If you disable this, then
