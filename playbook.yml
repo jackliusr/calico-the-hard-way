@@ -8,11 +8,19 @@
       debug:
         msg: "Ansible version is  {{ ansible_version.full }}"
 
+    # [FATAL][317] int_dataplane.go 1013: Kernel's RPF check is set to 'loose'.  This would allow endpoints to spoof their IP address.  Calico requires net.ipv4.conf.all.rp_filter to be set to 0 or 1. If you require loose RPF and you are not concerned about spoofing,
+    # this check can be disabled by setting the IgnoreLooseRPF configuration parameter to 'true'.
+    - name: set net.ipv4.conf.all.rp_filter =0
+      sysctl:
+        name: net.ipv4.conf.all.rp_filter
+        value: '0'
+        state: present
+
     - name: disable swappiness
       sysctl:
         name: vm.swappiness
         value: '0'
-        state: present
+        state: present        
     
     - name: KREW_ROOT
       lineinfile:
