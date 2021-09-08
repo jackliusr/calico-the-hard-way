@@ -7,9 +7,7 @@ vagrant cluster to study (calico in the hard way)(https://docs.projectcalico.org
 
 = Labs
 
-== Standing up Kubernetes
-
-== The Calico datastore
+== Set up Kubernetes
 
 === Provision nodes
 
@@ -52,15 +50,21 @@ NAME       STATUS     ROLES                  AGE     VERSION
 master-1   NotReady   control-plane,master   9m37s   v1.22.1
 worker-1   NotReady   <none>                 17s     v1.22.1
 ```
+
 == The Calico datastore
 
 === Using Kubernetes as the datastore
+
+Custom Resources
 ```bash
 kubectl apply -f https://docs.projectcalico.org/manifests/crds.yaml
 ```
+
+
 === calicoctl
 
 Install
+
 [source,bash]
 ----
 wget https://github.com/projectcalico/calicoctl/releases/download/v3.14.0/calicoctl
@@ -319,6 +323,7 @@ kubectl create clusterrolebinding calico-typha --clusterrole=calico-typha \
 
 === Install deployment
 
+
 [source,bash]
 ----
 kubectl apply -f - <<EOF
@@ -330,7 +335,7 @@ metadata:
   labels:
     k8s-app: calico-typha
 spec:
-  replicas: 3
+  replicas: 1
   revisionHistoryLimit: 2
   selector:
     matchLabels:
@@ -434,11 +439,29 @@ EOF
 ```
 
 == Install calico/node
-=== Provision Certificates
 
-=== Provision RBAC
-=== Install daemon set
+https://docs.projectcalico.org/getting-started/kubernetes/hardway/install-node[Install calico/node]
+
 == Configure BGP peering
+
+=== Choose and label nodes
+https://docs.projectcalico.org/getting-started/kubernetes/hardway/configure-bgp-peering[Choose and label nodes]
+
+```bash
+calicoctl get node worker-1 -o yaml --export > worker-1.yaml
+calicoctl get node worker-2 -o yaml --export > worker-2.yaml
+calicoctl get node worker-3 -o yaml --export > worker-3.yaml
+```
+
+Changes
+```yaml
+metadata:
+  labels:
+    calico-route-reflector: ""
+spec:
+  bgp:
+    routeReflectorClusterID: 224.0.0.1
+```
 
 == Test networking
 

@@ -54,6 +54,22 @@
         state: present
       when:  ansible_facts['nodename']  == "master-1"
 
+    - name: DATASTORE_TYPE
+      lineinfile:
+        path: /home/vagrant/.bashrc
+        regexp: '^export DATASTORE_TYPE'
+        line: export DATASTORE_TYPE=kubernetes
+        state: present
+      when:  ansible_facts['nodename']  == "master-1"
+
+    - name: KUBECONFIG
+      lineinfile:
+        path: /home/vagrant/.bashrc
+        regexp: '^export KUBECONFIG'
+        line: export KUBECONFIG=~/.kube/config
+        state: present
+      when:  ansible_facts['nodename']  == "master-1"
+
     - name:  kubectl
       lineinfile:
         path: /etc/hosts
@@ -178,18 +194,18 @@
 
     - name: Download calico cni
       get_url:
-        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.20.0/calico-amd64
+        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.8.0/calico-amd64
         dest: /opt/cni/bin/calico
         mode: '755'
 
     - name: Download calico ipam
       get_url:
-        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.20.0/calico-ipam-amd64
+        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.8.0/calico-ipam-amd64
         dest: /opt/cni/bin/calico-ipam
         mode: '755'        
     - name: Download calicoctl 
       get_url:
-        url: https://github.com/projectcalico/calicoctl/releases/download/v3.20.0/calicoctl
+        url: https://github.com/projectcalico/calicoctl/releases/download/v3.8.0/calicoctl
         dest: /usr/local/bin/calicoctl
         mode: '755'         
   handlers:
