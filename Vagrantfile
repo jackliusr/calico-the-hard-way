@@ -4,7 +4,7 @@
 # Define the number of master and worker nodes
 # If this number is changed, remember to update setup-hosts.sh script with the new hosts IP details in /etc/hosts of each VM.
 NUM_MASTER_NODE = 1
-NUM_WORKER_NODE = 4
+NUM_WORKER_NODE = 3
 
 IP_NW = "172.16.5."
 MASTER_IP_START = 10
@@ -52,7 +52,11 @@ Vagrant.configure("2") do |config|
         node.vm.network "forwarded_port", guest: 22, host: "#{2710 + i}"
         node.vm.provision "ansible_local" do |ansible|
           ansible.playbook = "playbook.yml"
-        end 
+          ansible.extra_vars = {
+            node_ip: IP_NW + "#{MASTER_IP_START + i}",
+          }          
+        end
+        node.vm.provision "shell", path: "krew.sh"
 	    end
   end
 
@@ -72,6 +76,9 @@ Vagrant.configure("2") do |config|
         
         node.vm.provision "ansible_local" do |ansible|
           ansible.playbook = "playbook.yml"
+          ansible.extra_vars = {
+            node_ip: IP_NW + "#{NODE_IP_START + i}",
+          }           
         end 
     end
   end

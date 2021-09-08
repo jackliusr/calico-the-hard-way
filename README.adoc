@@ -71,7 +71,7 @@ sudo mv calicoctl /usr/local/bin/
 Configure calicoctl to access Kubernetes
 ```bash
 echo "export KUBECONFIG=~/.kube/config" >> ~/.bashrc
-echo "DATASTORE_TYPE=kubernetes" >> ~/.bashrc
+echo "export DATASTORE_TYPE=kubernetes" >> ~/.bashrc
 ```
 
 Test

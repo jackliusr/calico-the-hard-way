@@ -14,13 +14,45 @@
         value: '0'
         state: present
     
-    - name: hosts--master
+    - name: KREW_ROOT
+      lineinfile:
+        path: /home/vagrant/.bashrc
+        regexp: '^.*KREW_ROOT'
+        line: export PATH="${KREW_ROOT:-$HOME/.krew}/bin:$PATH"
+        state: present
+      when:  ansible_facts['nodename']  == "master-1"
+        
+    - name: kubectl 
+      lineinfile:
+        path: /home/vagrant/.bashrc
+        regexp: '^source <(kubectl completion bash)'
+        line: source <(kubectl completion bash)
+        state: present
+      when:  ansible_facts['nodename']  == "master-1"
+
+    - name: kubectl alias
+      lineinfile:
+        path: /home/vagrant/.bashrc
+        regexp: '^alias k=kubectl'
+        line: alias k=kubectl
+        state: present
+      when:  ansible_facts['nodename']  == "master-1"
+
+    - name: kubectl alias autocompletion
+      lineinfile:
+        path: /home/vagrant/.bashrc
+        regexp: '^complete -F __start_kubectl k'
+        line: complete -F __start_kubectl k
+        state: present
+      when:  ansible_facts['nodename']  == "master-1"
+
+    - name:  kubectl
       lineinfile:
         path: /etc/hosts
         regexp: '^172.16.5.11'
         line: 172.16.5.11 master-1
         state: present
-
+        
     - name: hosts--workers
       lineinfile:
         path: /etc/hosts
@@ -99,9 +131,9 @@
         dest: /etc/cni/net.d/10-calico.conflist
         owner: root
         group: root
-        mode: u=rw,g=r,o=r        
+        mode: '600'       
 
-    - name: Restart service httpd, in all cases
+    - name: Restart service docker, in all cases
       service:
         name: docker
         state: restarted
@@ -118,6 +150,12 @@
         filename: kubernetes
         mode: 0600
 
+    - name: Configure node ip
+      lineinfile:
+        path: /etc/default/kubelet
+        line: KUBELET_EXTRA_ARGS=--node-ip={{ node_ip }}
+        create: yes
+
     - name: Installing Kubernetes Cluster Packages.
       apt: 
         name:
@@ -132,18 +170,18 @@
 
     - name: Download calico cni
       get_url:
-        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.14.0/calico-amd64
+        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.20.0/calico-amd64
         dest: /opt/cni/bin/calico
         mode: '755'
 
     - name: Download calico ipam
       get_url:
-        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.14.0/calico-ipam-amd64
+        url: https://github.com/projectcalico/cni-plugin/releases/download/v3.20.0/calico-ipam-amd64
         dest: /opt/cni/bin/calico-ipam
         mode: '755'        
     - name: Download calicoctl 
       get_url:
-        url: https://github.com/projectcalico/calicoctl/releases/download/v3.14.0/calicoctl
+        url: https://github.com/projectcalico/calicoctl/releases/download/v3.20.0/calicoctl
         dest: /usr/local/bin/calicoctl
         mode: '755'         
   handlers:
